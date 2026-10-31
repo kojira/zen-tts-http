@@ -55,6 +55,8 @@ label.check input { width: 20px; height: 20px; margin: 0; }
   <div class="grid five emotion" id="t-emotion"></div>
   <label for="t-strength">抑揚の強さ（1 が標準）</label>
   <input type="number" id="t-strength" min="0" step="0.1" value="1">
+  <label for="t-dict">辞書（JSON、省略可）</label>
+  <textarea id="t-dict" placeholder='[{"surface":"明日","reading":"アス","accent":2}]'></textarea>
   <div class="row"><button class="primary" id="t-play">▶ 再生</button></div>
   <audio id="t-audio" controls style="width:100%;margin-top:8px"></audio>
   <div class="status" id="s-test"></div>
@@ -164,6 +166,17 @@ document.getElementById("t-play").onclick = async () => {
   if (Object.keys(emotion).length) body.emotion = emotion;
   const strength = document.getElementById("t-strength").value;
   if (strength !== "") body.strength = Number(strength);
+  // the entries array, or the zen-tts demo export {"format":"zen-tts-dictionary","version":1,"entries":[...],"settings"?}
+  const dictText = document.getElementById("t-dict").value.trim();
+  if (dictText) {
+    let dict;
+    try { dict = JSON.parse(dictText); } catch { return setStatus("s-test", "辞書が JSON として読めません", true); }
+    if (Array.isArray(dict)) body.dict = dict;
+    else if (dict && Array.isArray(dict.entries)) {
+      body.dict = dict.entries;
+      if (dict.settings) body.settings = dict.settings;
+    } else return setStatus("s-test", "辞書は項目の配列か、書き出した形（entries）にしてください", true);
+  }
   setStatus("s-test", "作っています…");
   const started = performance.now();
   const res = await fetch("synthesize", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
