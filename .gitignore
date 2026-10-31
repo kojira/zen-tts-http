@@ -1,4 +1,5 @@
 node_modules/
-models/
 *.wav
-models-1.0.0-local/
+models*/
+*.ztm
+*.bin
