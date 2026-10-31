@@ -6,7 +6,8 @@
 //   POST   /voices           multipart: id, name_ja, name_en, and either ztm (one .ztm, ZEN-TTS 1.1.0)
 //                             or own_bin, own_json, nsf_bin, nsf_json (the 1.0.0 layout) -> 201 {voice}
 //   DELETE /voices/{id}      custom voices only -> {"deleted":"<id>"}
-//   POST   /synthesize       {"text","voice"?,"emotion"?,"strength"?} -> audio/wav (44.1 kHz, mono)
+//   POST   /synthesize       {"text","voice"?,"emotion"?,"strength"?,"dict"?,"settings"?} -> audio/wav (44.1 kHz, mono)
+//                             dict: zen-tts dictionary entries; settings: {"accentHeight"} (zen-tts README 辞書の形式)
 //
 // Errors are JSON {"error": "..."} with status 400, 404, 409, 413 or 500.
 
@@ -18,7 +19,8 @@ import { join } from 'node:path';
 import { loadBuiltin, listCustom, stageCustom, commitCustom, discard, customDir, customLoadOptions, CUSTOM_ID, VoiceError } from './voices.js';
 
 export const MAX_TEXT_CHARS = 1000;
-const MAX_BODY_BYTES = 64 * 1024;
+export const MAX_DICT_ENTRIES = 2000;
+const MAX_BODY_BYTES = 1024 * 1024; // a full dictionary (2000 entries) fits
 export const MAX_FILE_BYTES = 100 * 1024 * 1024;
 const MAX_UPLOAD_BYTES = 4 * MAX_FILE_BYTES + 1024 * 1024; // the 1.0.0 layout sends four files
 
@@ -102,6 +104,8 @@ export function createHandler({ modelsPath, dataPath }) {
       const options = {};
       if (request.emotion) options.emotion = request.emotion;
       if (request.strength !== undefined) options.strength = request.strength;
+      if (request.dict) options.dict = request.dict;
+      if (request.settings) options.settings = request.settings;
       const result = await tts.speak(request.text, options);
       const wav = wavBytes(result.pcm, result.sampleRate);
       res.writeHead(200, { 'content-type': 'audio/wav', 'content-length': wav.length });
@@ -159,7 +163,7 @@ function validate(body, defaultVoice) {
   if (body === null || typeof body !== 'object' || Array.isArray(body)) {
     throw new BadRequest('body must be a JSON object');
   }
-  const { text, voice = defaultVoice, emotion, strength } = body;
+  const { text, voice = defaultVoice, emotion, strength, dict, settings } = body;
   if (typeof text !== 'string' || text.trim() === '') throw new BadRequest('text must be a non-empty string');
   if ([...text].length > MAX_TEXT_CHARS) throw new BadRequest(`text must be at most ${MAX_TEXT_CHARS} characters`);
   if (typeof voice !== 'string' || !CUSTOM_ID.test(voice)) {
@@ -182,7 +186,65 @@ function validate(body, defaultVoice) {
   if (strength !== undefined && (typeof strength !== 'number' || !Number.isFinite(strength) || strength < 0)) {
     throw new BadRequest('strength must be a non-negative number');
   }
-  return { text, voice, emotion: checkedEmotion, strength };
+  return { text, voice, emotion: checkedEmotion, strength, dict: validateDict(dict), settings: validateSettings(settings) };
+}
+
+const KANA_READING = /^[\u3041-\u309f\u30a0-\u30ff]+$/u;
+const isNumber = (v) => typeof v === 'number' && Number.isFinite(v);
+
+function numbers(value, where, ok) {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 128 || !value.every((v) => isNumber(v) && ok(v))) {
+    throw new BadRequest(where);
+  }
+  return value;
+}
+
+// zen-tts dictionary entries (README 辞書の形式): surface, reading, and the optional intonation fields.
+function validateDict(dict) {
+  if (dict === undefined) return undefined;
+  if (!Array.isArray(dict)) throw new BadRequest('dict must be an array of entries');
+  if (dict.length > MAX_DICT_ENTRIES) throw new BadRequest(`dict must have at most ${MAX_DICT_ENTRIES} entries`);
+  return dict.map((entry, i) => {
+    const at = `dict[${i}]`;
+    if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) throw new BadRequest(`${at} must be an object`);
+    const { surface, reading, accent, phrase, strength, contour, pitch, length, ...rest } = entry;
+    const unknown = Object.keys(rest);
+    if (unknown.length) throw new BadRequest(`${at}: unknown field ${unknown[0]}`);
+    if (typeof surface !== 'string' || surface.length === 0 || [...surface].length > 64) {
+      throw new BadRequest(`${at}.surface must be a string of 1 to 64 characters`);
+    }
+    if (typeof reading !== 'string' || [...reading].length > 128 || !KANA_READING.test(reading)) {
+      throw new BadRequest(`${at}.reading must be katakana or hiragana (at most 128 characters)`);
+    }
+    const out = { surface, reading };
+    if (accent !== undefined) {
+      if (!Number.isInteger(accent) || accent < 0) throw new BadRequest(`${at}.accent must be an integer of 0 or more`);
+      out.accent = accent;
+    }
+    if (phrase !== undefined) {
+      if (phrase !== 'split' && phrase !== 'join') throw new BadRequest(`${at}.phrase must be "split" or "join"`);
+      out.phrase = phrase;
+    }
+    if (strength !== undefined) {
+      if (!isNumber(strength) || strength < 0) throw new BadRequest(`${at}.strength must be a number of 0 or more`);
+      out.strength = strength;
+    }
+    if (contour !== undefined) out.contour = numbers(contour, `${at}.contour must be numbers from -3 to 3`, (v) => v >= -3 && v <= 3);
+    if (pitch !== undefined) out.pitch = numbers(pitch, `${at}.pitch must be numbers`, () => true);
+    if (length !== undefined) out.length = numbers(length, `${at}.length must be numbers above 0`, (v) => v > 0);
+    return out;
+  });
+}
+
+function validateSettings(settings) {
+  if (settings === undefined) return undefined;
+  if (settings === null || typeof settings !== 'object' || Array.isArray(settings)) throw new BadRequest('settings must be an object');
+  const { accentHeight, ...rest } = settings;
+  const unknown = Object.keys(rest);
+  if (unknown.length) throw new BadRequest(`settings: unknown field ${unknown[0]}`);
+  if (accentHeight === undefined) return undefined;
+  if (!isNumber(accentHeight) || accentHeight < 0) throw new BadRequest('settings.accentHeight must be a number of 0 or more');
+  return { accentHeight };
 }
 
 async function readJson(req) {

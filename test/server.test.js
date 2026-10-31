@@ -74,6 +74,41 @@ test('POST /synthesize rejects bad input with 400 and a JSON error', { skip }, a
   }
 });
 
+async function pcm(body) {
+  const res = await post(body);
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('content-type'), 'audio/wav');
+  return Buffer.from(await res.arrayBuffer()).subarray(44);
+}
+
+test('POST /synthesize reads a word as the dict entry says (reading and accent)', { skip }, async () => {
+  const plain = await pcm({ text: '明日', voice: 'marine' });
+  const withDict = await pcm({ text: '明日', voice: 'marine', dict: [{ surface: '明日', reading: 'アス', accent: 2 }] });
+  assert.notDeepEqual(withDict, plain);
+  const export_ = { text: '明日', voice: 'marine', dict: [{ surface: '明日', reading: 'アス', accent: 2 }], settings: { accentHeight: 6 } };
+  assert.notDeepEqual(await pcm(export_), withDict, 'settings.accentHeight is applied');
+});
+
+test('POST /synthesize rejects a bad dict with 400 and a JSON error', { skip }, async () => {
+  const cases = [
+    { dict: { surface: '明日', reading: 'アス' } },
+    { dict: [{ reading: 'アス' }] },
+    { dict: [{ surface: '明日', reading: 'asu' }] },
+    { dict: [{ surface: '明日', reading: 'アス', accent: -1 }] },
+    { dict: [{ surface: '明日', reading: 'アス', phrase: 'cut' }] },
+    { dict: [{ surface: '明日', reading: 'アス', contour: [4] }] },
+    { dict: [{ surface: '明日', reading: 'アス', length: [0] }] },
+    { dict: [{ surface: '明日', reading: 'アス', color: 'red' }] },
+    { dict: Array.from({ length: 2001 }, () => ({ surface: 'あ', reading: 'ア' })) },
+    { settings: { accentHeight: 'high' } },
+  ];
+  for (const extra of cases) {
+    const res = await post({ text: '明日', ...extra });
+    assert.equal(res.status, 400, JSON.stringify(extra).slice(0, 60));
+    assert.equal(typeof (await res.json()).error, 'string');
+  }
+});
+
 test('unknown paths are 404', { skip }, async () => {
   const res = await fetch(`${base}/nope`);
   assert.equal(res.status, 404);
