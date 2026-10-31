@@ -9,6 +9,7 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 // zenryokukikai/zen-tts tag v1.0.0. Keep in sync with the zen-tts dependency in package.json.
 export const UPSTREAM_COMMIT = '127d26aa956dd3e3bdc797ab147500b0d95f2247';
@@ -55,7 +56,8 @@ export async function fetchModels(dest) {
   return { files: Object.keys(manifest.files).length, fetched };
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// pathToFileURL, not a string concat: paths with spaces ("Application Support") are URL-encoded.
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const dest = resolve(process.argv[2] ?? process.env.ZEN_TTS_MODELS ?? 'models');
   const { files, fetched } = await fetchModels(dest);
   console.log(`models ok: ${files} files verified in ${dest} (${fetched} downloaded)`);
