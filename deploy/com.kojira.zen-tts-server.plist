@@ -18,6 +18,11 @@
     <string>127.0.0.1:50023</string>
     <key>ZEN_TTS_MODELS</key>
     <string>/Users/YOU/Library/Application Support/zen-tts-server/models</string>
+    <!-- Optional: added voices, and a second listener for the settings page. -->
+    <key>ZEN_TTS_DATA</key>
+    <string>/Users/YOU/Library/Application Support/zen-tts-server/data</string>
+    <key>ZEN_TTS_ADMIN_BIND</key>
+    <string>0.0.0.0:50024</string>
   </dict>
   <key>RunAtLoad</key>
   <true/>
