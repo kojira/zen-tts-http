@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.14.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.12.1
+      - run: pnpm install --frozen-lockfile
+      # The weights come from the upstream repository at the pinned commit and are cached
+      # here only for CI runs; they are never committed or published from this repository.
+      - uses: actions/cache@v4
+        with:
+          path: models
+          key: zen-tts-models-127d26aa956dd3e3bdc797ab147500b0d95f2247
+      - run: node scripts/fetch-models.mjs models
+      - run: node --test test/

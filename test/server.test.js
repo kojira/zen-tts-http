@@ -1,0 +1,77 @@
+import { test, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { createApp } from '../src/server.js';
+
+const modelsPath = resolve(process.env.ZEN_TTS_MODELS ?? 'models');
+const haveModels = existsSync(resolve(modelsPath, 'manifest.json'));
+const skip = haveModels ? false : `models are missing at ${modelsPath}; run "pnpm fetch-models" first`;
+
+let server;
+let base;
+
+before(async () => {
+  if (!haveModels) return;
+  server = createApp({ modelsPath });
+  await new Promise((done) => server.listen(0, '127.0.0.1', done));
+  base = `http://127.0.0.1:${server.address().port}`;
+});
+
+after(() => server?.close());
+
+function post(body) {
+  return fetch(`${base}/synthesize`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: typeof body === 'string' ? body : JSON.stringify(body),
+  });
+}
+
+test('GET /health answers ok', { skip }, async () => {
+  const res = await fetch(`${base}/health`);
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), { ok: true });
+});
+
+test('GET /voices lists the four voices and the emotion keys', { skip }, async () => {
+  const body = await (await fetch(`${base}/voices`)).json();
+  assert.equal(body.default, 'marine');
+  assert.deepEqual(body.voices.map((v) => v.id).sort(), ['hashiro', 'kai', 'kikka', 'marine']);
+  assert.ok(body.voices.every((v) => v.name.ja && v.name.en));
+  assert.deepEqual(body.emotions, ['neutral', 'happy', 'sad', 'angry', 'apologetic']);
+});
+
+test('POST /synthesize returns a 44.1 kHz mono WAV', { skip }, async () => {
+  const res = await post({ text: 'こんにちは', voice: 'kikka', emotion: { happy: 70, neutral: 30 } });
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('content-type'), 'audio/wav');
+  const wav = Buffer.from(await res.arrayBuffer());
+  assert.equal(wav.toString('ascii', 0, 4), 'RIFF');
+  assert.equal(wav.toString('ascii', 8, 12), 'WAVE');
+  assert.equal(wav.readUInt16LE(22), 1, 'mono');
+  assert.equal(wav.readUInt32LE(24), 44100, 'sample rate');
+  assert.ok(wav.length > 1000, 'has audio');
+});
+
+test('POST /synthesize rejects bad input with 400 and a JSON error', { skip }, async () => {
+  const cases = [
+    'not json',
+    { text: '' },
+    { text: 'あ'.repeat(1001) },
+    { text: 'あ', voice: 'nobody' },
+    { text: 'あ', emotion: { happy: 101 } },
+    { text: 'あ', emotion: { joy: 10 } },
+    { text: 'あ', strength: -1 },
+  ];
+  for (const body of cases) {
+    const res = await post(body);
+    assert.equal(res.status, 400, JSON.stringify(body).slice(0, 40));
+    assert.equal(typeof (await res.json()).error, 'string');
+  }
+});
+
+test('unknown paths are 404', { skip }, async () => {
+  const res = await fetch(`${base}/nope`);
+  assert.equal(res.status, 404);
+});

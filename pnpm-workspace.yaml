@@ -1,0 +1,5 @@
+minimumReleaseAge: 10080
+minimumReleaseAgeStrict: true
+# zen-tts is installed from its git tag and builds itself (tsc) on install.
+allowBuilds:
+  "zen-tts@https://codeload.github.com/zenryokukikai/zen-tts/tar.gz/127d26aa956dd3e3bdc797ab147500b0d95f2247": true

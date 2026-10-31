@@ -1,0 +1,21 @@
+{
+  "name": "zen-tts-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "HTTP server for ZEN-TTS (zenryokukikai/zen-tts). Does not include ZEN-TTS code or weights.",
+  "license": "MIT",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/main.js",
+    "fetch-models": "node scripts/fetch-models.mjs",
+    "test": "node --test test/"
+  },
+  "dependencies": {
+    "zen-tts": "github:zenryokukikai/zen-tts#127d26aa956dd3e3bdc797ab147500b0d95f2247"
+  },
+  "engines": {
+    "node": ">=26.12.1"
+  },
+  "packageManager": "pnpm@12.14.0"
+}
