@@ -167,16 +167,16 @@ importers:
   .:
     dependencies:
       zen-tts:
-        specifier: github:zenryokukikai/zen-tts#127d26aa956dd3e3bdc797ab147500b0d95f2247
-        version: https://codeload.github.com/zenryokukikai/zen-tts/tar.gz/127d26aa956dd3e3bdc797ab147500b0d95f2247
+        specifier: github:zenryokukikai/zen-tts#ee0af0723f7a952738fa2e444a8b898c4aa021ad
+        version: https://codeload.github.com/zenryokukikai/zen-tts/tar.gz/ee0af0723f7a952738fa2e444a8b898c4aa021ad
 
 packages:
 
-  zen-tts@https://codeload.github.com/zenryokukikai/zen-tts/tar.gz/127d26aa956dd3e3bdc797ab147500b0d95f2247:
-    resolution: {gitHosted: true, integrity: sha512-2+6APEQWehYE7xBLyd1J7EgAgqCdzt4bBHIx7pgEHAbM5QVGuqoLBRz+dE+SxQCGQddoGOBsRAX4HhKPo/fEGA==, tarball: https://codeload.github.com/zenryokukikai/zen-tts/tar.gz/127d26aa956dd3e3bdc797ab147500b0d95f2247}
-    version: 1.0.0
+  zen-tts@https://codeload.github.com/zenryokukikai/zen-tts/tar.gz/ee0af0723f7a952738fa2e444a8b898c4aa021ad:
+    resolution: {gitHosted: true, integrity: sha512-BZuEfQZivfb88NVL9llNz8v/g0ESZnapGFVsN1C+vYFyjkGKn/Egksh40tgEL9Ha86plByIWm+j4V80YRFQGWg==, tarball: https://codeload.github.com/zenryokukikai/zen-tts/tar.gz/ee0af0723f7a952738fa2e444a8b898c4aa021ad}
+    version: 1.1.0
     engines: {node: '>=26.12.1'}
 
 snapshots:
 
-  zen-tts@https://codeload.github.com/zenryokukikai/zen-tts/tar.gz/127d26aa956dd3e3bdc797ab147500b0d95f2247: {}
+  zen-tts@https://codeload.github.com/zenryokukikai/zen-tts/tar.gz/ee0af0723f7a952738fa2e444a8b898c4aa021ad: {}
