@@ -1,3 +1,5 @@
 node_modules/
-models/
 *.wav
+models*/
+*.ztm
+*.bin

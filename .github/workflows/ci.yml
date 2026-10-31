@@ -20,11 +20,11 @@ jobs:
         with:
           node-version: 26.12.1
       - run: pnpm install --frozen-lockfile
-      # The weights come from the upstream repository at the pinned commit and are cached
+      # The voices (.ztm) come from the upstream CDN (sha256-checked) and are cached
       # here only for CI runs; they are never committed or published from this repository.
       - uses: actions/cache@v4
         with:
           path: models
-          key: zen-tts-models-127d26aa956dd3e3bdc797ab147500b0d95f2247
+          key: zen-tts-ztm-v1.1.0
       - run: node scripts/fetch-models.mjs models
       - run: node --test test/

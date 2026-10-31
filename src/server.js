@@ -3,7 +3,8 @@
 //   GET    /                 -> the settings page (HTML)
 //   GET    /health           -> {"ok":true,"version":"<zen-tts version>","models":{"<voice>":"<model>"}}
 //   GET    /voices           -> {"default":"marine","voices":[{"id","name":{"ja","en"},"custom"}],"emotions":[...]}
-//   POST   /voices           multipart: id, name_ja, name_en, own_bin, own_json, nsf_bin, nsf_json -> 201 {voice}
+//   POST   /voices           multipart: id, name_ja, name_en, and either ztm (one .ztm, ZEN-TTS 1.1.0)
+//                             or own_bin, own_json, nsf_bin, nsf_json (the 1.0.0 layout) -> 201 {voice}
 //   DELETE /voices/{id}      custom voices only -> {"deleted":"<id>"}
 //   POST   /synthesize       {"text","voice"?,"emotion"?,"strength"?} -> audio/wav (44.1 kHz, mono)
 //
@@ -13,12 +14,13 @@ import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { ZenTtsNode, wavBytes, emotionNames, VERSION } from 'zen-tts/node';
 import { boundaryOf, readBody, parseMultipart, MultipartError } from './multipart.js';
-import { loadBuiltin, listCustom, stageCustom, commitCustom, discard, customDir, CUSTOM_ID, VoiceError } from './voices.js';
+import { join } from 'node:path';
+import { loadBuiltin, listCustom, stageCustom, commitCustom, discard, customDir, customLoadOptions, CUSTOM_ID, VoiceError } from './voices.js';
 
 export const MAX_TEXT_CHARS = 1000;
 const MAX_BODY_BYTES = 64 * 1024;
 export const MAX_FILE_BYTES = 100 * 1024 * 1024;
-const MAX_UPLOAD_BYTES = 4 * MAX_FILE_BYTES + 1024 * 1024;
+const MAX_UPLOAD_BYTES = 4 * MAX_FILE_BYTES + 1024 * 1024; // the 1.0.0 layout sends four files
 
 const PAGE = readFileSync(new URL('./page.html', import.meta.url), 'utf8');
 
@@ -44,10 +46,11 @@ export function createHandler({ modelsPath, dataPath }) {
 
   async function engine(voice) {
     const { builtinIds, custom } = await catalogue();
-    if (builtinIds.includes(voice)) return load(`builtin:${voice}`, { modelsPath, voice });
-    if (custom.some((v) => v.id === voice)) {
-      return load(`custom:${voice}`, { modelsPath: customDir(dataPath, voice), voice: 'marine' });
+    if (builtinIds.includes(voice)) {
+      const { manifest } = await catalogue();
+      return load(`builtin:${voice}`, { model: join(modelsPath, manifest.voices[voice].file) });
     }
+    if (custom.some((v) => v.id === voice)) return load(`custom:${voice}`, customLoadOptions(dataPath, voice));
     throw new BadRequest(`unknown voice: ${voice} (one of ${[...builtinIds, ...custom.map((v) => v.id)].join(', ')})`);
   }
 
@@ -118,10 +121,11 @@ export function createHandler({ modelsPath, dataPath }) {
         throw new Conflict(`id "${staged.id}" の声はもうあります（差し替えるときは先に削除してください）`);
       }
       // Load it before keeping it: a set of files the engine cannot load is refused.
-      const tts = await ZenTtsNode.load({ modelsPath: staged.staging, voice: 'marine' }).catch((error) => {
+      const tts = await ZenTtsNode.load(staged.loadOptions).catch((error) => {
         throw new BadRequest(`この声を読み込めません: ${error.message}`);
       });
       await commitCustom(staged);
+      // load() reads every file into memory, so the engine stays valid after the rename.
       loaded.set(`custom:${staged.id}`, Promise.resolve(tts));
     } catch (error) {
       await discard(staged.staging);

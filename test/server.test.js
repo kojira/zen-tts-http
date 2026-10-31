@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import { createApp } from '../src/server.js';
 
 const modelsPath = resolve(process.env.ZEN_TTS_MODELS ?? 'models');
-const haveModels = existsSync(resolve(modelsPath, 'manifest.json'));
+const haveModels = existsSync(resolve(modelsPath, 'voices.json'));
 const skip = haveModels ? false : `models are missing at ${modelsPath}; run "pnpm fetch-models" first`;
 
 let server;
@@ -28,12 +28,12 @@ function post(body) {
   });
 }
 
-test('GET /health answers ok with the engine and model versions', { skip }, async () => {
+test('GET /health reports zen-tts 1.1.0 and each voice model', { skip }, async () => {
   const res = await fetch(`${base}/health`);
   assert.equal(res.status, 200);
   const body = await res.json();
   assert.equal(body.ok, true);
-  assert.equal(body.version, '1.0.0');
+  assert.equal(body.version, '1.1.0');
   assert.deepEqual(body.models, { marine: 'marine-1.0', hashiro: 'hashiro-1.0', kai: 'kai-1.0', kikka: 'kikka-1.0' });
 });
 
@@ -45,7 +45,7 @@ test('GET /voices lists the four voices and the emotion keys', { skip }, async (
   assert.deepEqual(body.emotions, ['neutral', 'happy', 'sad', 'angry', 'apologetic']);
 });
 
-test('POST /synthesize returns a 44.1 kHz mono WAV', { skip }, async () => {
+test('POST /synthesize returns a 44.1 kHz mono WAV from a built-in .ztm', { skip }, async () => {
   const res = await post({ text: 'こんにちは', voice: 'kikka', emotion: { happy: 70, neutral: 30 } });
   assert.equal(res.status, 200);
   assert.equal(res.headers.get('content-type'), 'audio/wav');

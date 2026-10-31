@@ -31,6 +31,8 @@ button.danger { color: #b91c1c; }
 .status.error { color: #b91c1c; }
 .muted { opacity: .75; font-size: .9rem; }
 .credit { font-size: .9rem; }
+label.check { display: flex; align-items: center; gap: 8px; font-weight: 400; }
+label.check input { width: 20px; height: 20px; margin: 0; }
 </style>
 </head>
 <body>
@@ -60,18 +62,20 @@ button.danger { color: #b91c1c; }
 
 <section>
   <h2>声を追加</h2>
-  <p class="muted">全力機械から受け取ったモデルファイル 4 つを選びます。ファイルはこのマシンの中だけに置き、外へは出しません。</p>
+  <p class="muted">全力機械から受け取ったモデルファイル（<code>.ztm</code>、ZEN-TTS 1.1.0）を選びます。ファイルはこのマシンの中だけに置き、外へは出しません。</p>
   <form id="add">
     <div class="grid two">
       <div><label for="a-id">id（英小文字・数字・ハイフン）</label><input type="text" id="a-id" name="id" required pattern="[a-z0-9][a-z0-9-]{1,31}" autocomplete="off"></div>
       <div><label for="a-name-ja">名前（日本語）</label><input type="text" id="a-name-ja" name="name_ja" required></div>
     </div>
     <label for="a-name-en">名前（英語。空なら日本語と同じ）</label><input type="text" id="a-name-en" name="name_en">
-    <div class="grid two">
-      <div><label for="a-own-bin">tts/own.bin</label><input type="file" id="a-own-bin" name="own_bin" required></div>
-      <div><label for="a-own-json">tts/own.json</label><input type="file" id="a-own-json" name="own_json" accept=".json,application/json" required></div>
-      <div><label for="a-nsf-bin">decoder/nsf.bin</label><input type="file" id="a-nsf-bin" name="nsf_bin" required></div>
-      <div><label for="a-nsf-json">decoder/nsf.json</label><input type="file" id="a-nsf-json" name="nsf_json" accept=".json,application/json" required></div>
+    <div id="a-ztm-box"><label for="a-ztm">モデルファイル（.ztm）</label><input type="file" id="a-ztm" name="ztm" accept=".ztm" required></div>
+    <label class="check"><input type="checkbox" id="a-legacy"> 1.0.0 の形（ファイル 4 つ）で追加する</label>
+    <div class="grid two" id="a-legacy-box" hidden>
+      <div><label for="a-own-bin">tts/own.bin</label><input type="file" id="a-own-bin" name="own_bin"></div>
+      <div><label for="a-own-json">tts/own.json</label><input type="file" id="a-own-json" name="own_json" accept=".json,application/json"></div>
+      <div><label for="a-nsf-bin">decoder/nsf.bin</label><input type="file" id="a-nsf-bin" name="nsf_bin"></div>
+      <div><label for="a-nsf-json">decoder/nsf.json</label><input type="file" id="a-nsf-json" name="nsf_json" accept=".json,application/json"></div>
     </div>
     <div class="row"><button class="primary" type="submit" id="a-submit">追加する</button></div>
     <div class="status" id="s-add"></div>
@@ -170,17 +174,32 @@ document.getElementById("t-play").onclick = async () => {
   setStatus("s-test", `${Math.round(performance.now() - started)} ms で作りました。`);
 };
 
+// .ztm by default; the toggle switches to the 1.0.0 four-file form. Only the shown files are sent.
+const legacyFiles = ["a-own-bin", "a-own-json", "a-nsf-bin", "a-nsf-json"];
+function showLegacy(on) {
+  document.getElementById("a-legacy-box").hidden = !on;
+  document.getElementById("a-ztm-box").hidden = on;
+  document.getElementById("a-ztm").required = !on;
+  for (const id of legacyFiles) document.getElementById(id).required = on;
+}
+document.getElementById("a-legacy").onchange = (event) => showLegacy(event.target.checked);
+showLegacy(false);
+
 document.getElementById("add").onsubmit = async (event) => {
   event.preventDefault();
   const button = document.getElementById("a-submit");
   button.disabled = true;
   setStatus("s-add", "送っています…（読み込めるか確かめてから追加します）");
   try {
-    const res = await fetch("voices", { method: "POST", body: new FormData(event.target) });
+    const form = new FormData(event.target);
+    if (document.getElementById("a-legacy").checked) form.delete("ztm");
+    else for (const name of ["own_bin", "own_json", "nsf_bin", "nsf_json"]) form.delete(name);
+    const res = await fetch("voices", { method: "POST", body: form });
     if (!res.ok) return setStatus("s-add", `追加できません: ${await errorOf(res)}`, true);
     const { voice } = await res.json();
     setStatus("s-add", `「${voice.name.ja}」（${voice.id}）を追加しました。`);
     event.target.reset();
+    showLegacy(false);
     await loadVoices();
     document.getElementById("t-voice").value = voice.id;
   } finally {
