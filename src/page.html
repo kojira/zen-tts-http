@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ZEN-TTS サーバー</title>
+<style>
+:root { color-scheme: light dark; }
+* { box-sizing: border-box; }
+body { font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif; margin: 0; padding: 12px; max-width: 760px; margin-inline: auto; }
+h1 { font-size: 1.3rem; margin: 4px 0 12px; }
+h2 { font-size: 1.05rem; margin: 0 0 8px; }
+section { border: 1px solid #8884; border-radius: 10px; padding: 12px; margin: 0 0 12px; }
+label { display: block; margin: 8px 0 4px; font-weight: 600; }
+input, select, textarea, button { font: inherit; }
+input[type=text], input[type=number], select, textarea, input[type=file] { width: 100%; padding: 8px; border: 1px solid #8886; border-radius: 8px; }
+textarea { min-height: 4.5em; }
+button { min-height: 44px; padding: 0 16px; border-radius: 8px; border: 1px solid #8886; background: #8881; cursor: pointer; }
+button.primary { background: #2563eb; color: #fff; border-color: #2563eb; }
+button.danger { color: #b91c1c; }
+.voice { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid #8882; }
+.voice:last-child { border-bottom: 0; }
+.voice .name { flex: 1; overflow-wrap: anywhere; }
+.tag { font-size: .8rem; padding: 1px 6px; border-radius: 6px; background: #8882; margin-left: 4px; }
+.grid { display: grid; gap: 8px; grid-template-columns: 1fr; }
+@media (min-width: 600px) { .grid.two { grid-template-columns: 1fr 1fr; } .grid.five { grid-template-columns: repeat(5, 1fr); } }
+.emotion label { margin: 0; font-weight: 400; font-size: .9rem; }
+.emotion input { width: 100%; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 10px; }
+.status { min-height: 1.5em; margin-top: 6px; overflow-wrap: anywhere; }
+.status.error { color: #b91c1c; }
+.muted { opacity: .75; font-size: .9rem; }
+.credit { font-size: .9rem; }
+</style>
+</head>
+<body>
+<h1>ZEN-TTS サーバー</h1>
+<p class="credit">音声合成：<a href="https://zenryokukikai.com" target="_blank" rel="noopener">ZEN-TTS（https://zenryokukikai.com ）</a></p>
+
+<section>
+  <h2>声の一覧</h2>
+  <div id="voices"></div>
+  <div class="status" id="s-voices"></div>
+</section>
+
+<section>
+  <h2>試しに読む</h2>
+  <label for="t-text">文</label>
+  <textarea id="t-text">こんにちは。今日はいい天気ですね。</textarea>
+  <label for="t-voice">声</label>
+  <select id="t-voice"></select>
+  <label>感情（0〜100）</label>
+  <div class="grid five emotion" id="t-emotion"></div>
+  <label for="t-strength">抑揚の強さ（1 が標準）</label>
+  <input type="number" id="t-strength" min="0" step="0.1" value="1">
+  <div class="row"><button class="primary" id="t-play">▶ 再生</button></div>
+  <audio id="t-audio" controls style="width:100%;margin-top:8px"></audio>
+  <div class="status" id="s-test"></div>
+</section>
+
+<section>
+  <h2>声を追加</h2>
+  <p class="muted">全力機械から受け取ったモデルファイル 4 つを選びます。ファイルはこのマシンの中だけに置き、外へは出しません。</p>
+  <form id="add">
+    <div class="grid two">
+      <div><label for="a-id">id（英小文字・数字・ハイフン）</label><input type="text" id="a-id" name="id" required pattern="[a-z0-9][a-z0-9-]{1,31}" autocomplete="off"></div>
+      <div><label for="a-name-ja">名前（日本語）</label><input type="text" id="a-name-ja" name="name_ja" required></div>
+    </div>
+    <label for="a-name-en">名前（英語。空なら日本語と同じ）</label><input type="text" id="a-name-en" name="name_en">
+    <div class="grid two">
+      <div><label for="a-own-bin">tts/own.bin</label><input type="file" id="a-own-bin" name="own_bin" required></div>
+      <div><label for="a-own-json">tts/own.json</label><input type="file" id="a-own-json" name="own_json" accept=".json,application/json" required></div>
+      <div><label for="a-nsf-bin">decoder/nsf.bin</label><input type="file" id="a-nsf-bin" name="nsf_bin" required></div>
+      <div><label for="a-nsf-json">decoder/nsf.json</label><input type="file" id="a-nsf-json" name="nsf_json" accept=".json,application/json" required></div>
+    </div>
+    <div class="row"><button class="primary" type="submit" id="a-submit">追加する</button></div>
+    <div class="status" id="s-add"></div>
+  </form>
+</section>
+
+<script>
+let emotions = [];
+const labels = { neutral: "ふつう", happy: "うれしい", sad: "かなしい", angry: "おこり", apologetic: "あやまり" };
+
+function setStatus(id, text, error) {
+  const el = document.getElementById(id);
+  el.textContent = text;
+  el.className = "status" + (error ? " error" : "");
+}
+
+async function errorOf(res) {
+  try { return (await res.json()).error || res.statusText; } catch { return res.statusText; }
+}
+
+async function loadVoices() {
+  const res = await fetch("voices");
+  if (!res.ok) return setStatus("s-voices", `声の一覧を読めません: ${await errorOf(res)}`, true);
+  const data = await res.json();
+  emotions = data.emotions;
+  const list = document.getElementById("voices");
+  list.innerHTML = "";
+  const select = document.getElementById("t-voice");
+  const keep = select.value;
+  select.innerHTML = "";
+  for (const v of data.voices) {
+    const row = document.createElement("div");
+    row.className = "voice";
+    const name = document.createElement("span");
+    name.className = "name";
+    name.textContent = `${v.name.ja}（${v.id}）`;
+    const tag = document.createElement("span");
+    tag.className = "tag";
+    tag.textContent = v.custom ? "追加" : "組み込み";
+    name.appendChild(tag);
+    row.appendChild(name);
+    if (v.custom) {
+      const del = document.createElement("button");
+      del.className = "danger";
+      del.textContent = "削除";
+      del.onclick = () => removeVoice(v.id, v.name.ja);
+      row.appendChild(del);
+    }
+    list.appendChild(row);
+    const opt = document.createElement("option");
+    opt.value = v.id;
+    opt.textContent = `${v.name.ja}（${v.id}）`;
+    select.appendChild(opt);
+  }
+  select.value = [...select.options].some((o) => o.value === keep) ? keep : data.default;
+  const box = document.getElementById("t-emotion");
+  if (!box.childElementCount) {
+    for (const e of emotions) {
+      const cell = document.createElement("div");
+      cell.innerHTML = `<label for="e-${e}">${labels[e] || e} <span id="v-${e}">${e === "neutral" ? 100 : 0}</span></label>`;
+      const input = document.createElement("input");
+      input.type = "range"; input.min = 0; input.max = 100; input.id = `e-${e}`;
+      input.value = e === "neutral" ? 100 : 0;
+      input.oninput = () => { document.getElementById(`v-${e}`).textContent = input.value; };
+      cell.appendChild(input);
+      box.appendChild(cell);
+    }
+  }
+}
+
+async function removeVoice(id, name) {
+  if (!confirm(`声「${name}」（${id}）を削除しますか？`)) return;
+  const res = await fetch(`voices/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!res.ok) return setStatus("s-voices", `削除できません: ${await errorOf(res)}`, true);
+  setStatus("s-voices", `「${name}」を削除しました。`);
+  loadVoices();
+}
+
+document.getElementById("t-play").onclick = async () => {
+  const emotion = {};
+  for (const e of emotions) {
+    const v = Number(document.getElementById(`e-${e}`).value);
+    if (v > 0) emotion[e] = v;
+  }
+  const body = { text: document.getElementById("t-text").value, voice: document.getElementById("t-voice").value };
+  if (Object.keys(emotion).length) body.emotion = emotion;
+  const strength = document.getElementById("t-strength").value;
+  if (strength !== "") body.strength = Number(strength);
+  setStatus("s-test", "作っています…");
+  const started = performance.now();
+  const res = await fetch("synthesize", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  if (!res.ok) return setStatus("s-test", `読めません: ${await errorOf(res)}`, true);
+  const audio = document.getElementById("t-audio");
+  audio.src = URL.createObjectURL(await res.blob());
+  audio.play().catch(() => {});
+  setStatus("s-test", `${Math.round(performance.now() - started)} ms で作りました。`);
+};
+
+document.getElementById("add").onsubmit = async (event) => {
+  event.preventDefault();
+  const button = document.getElementById("a-submit");
+  button.disabled = true;
+  setStatus("s-add", "送っています…（読み込めるか確かめてから追加します）");
+  try {
+    const res = await fetch("voices", { method: "POST", body: new FormData(event.target) });
+    if (!res.ok) return setStatus("s-add", `追加できません: ${await errorOf(res)}`, true);
+    const { voice } = await res.json();
+    setStatus("s-add", `「${voice.name.ja}」（${voice.id}）を追加しました。`);
+    event.target.reset();
+    await loadVoices();
+    document.getElementById("t-voice").value = voice.id;
+  } finally {
+    button.disabled = false;
+  }
+};
+
+loadVoices();
+</script>
+</body>
+</html>
