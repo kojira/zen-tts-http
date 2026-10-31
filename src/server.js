@@ -1,6 +1,6 @@
 // HTTP API for ZEN-TTS (zenryokukikai/zen-tts). Uses only node:http.
 //
-//   GET  /health      -> {"ok":true}
+//   GET  /health      -> {"ok":true,"version":"<zen-tts version>","models":{"<voice>":"<model>"}}
 //   GET  /voices      -> {"default":"marine","voices":[{"id","name":{"ja","en"}}],"emotions":[...]}
 //   POST /synthesize  {"text","voice"?,"emotion"?,"strength"?} -> audio/wav (44.1 kHz, mono)
 //
@@ -9,7 +9,7 @@
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { ZenTtsNode, wavBytes, emotionNames } from 'zen-tts/node';
+import { ZenTtsNode, wavBytes, emotionNames, VERSION } from 'zen-tts/node';
 
 export const MAX_TEXT_CHARS = 1000;
 const MAX_BODY_BYTES = 64 * 1024;
@@ -31,7 +31,10 @@ export function createApp({ modelsPath }) {
   async function handle(req, res) {
     const url = new URL(req.url, 'http://localhost');
     if (req.method === 'GET' && url.pathname === '/health') {
-      return sendJson(res, 200, { ok: true });
+      // version + models identify the audio a request produces; clients use them to drop caches.
+      const manifest = await voicesByDefault;
+      const models = Object.fromEntries(Object.values(manifest.voices).map((v) => [v.id, v.model]));
+      return sendJson(res, 200, { ok: true, version: VERSION, models });
     }
     if (req.method === 'GET' && url.pathname === '/voices') {
       const manifest = await voicesByDefault;

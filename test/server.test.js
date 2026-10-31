@@ -28,10 +28,13 @@ function post(body) {
   });
 }
 
-test('GET /health answers ok', { skip }, async () => {
+test('GET /health answers ok with the engine and model versions', { skip }, async () => {
   const res = await fetch(`${base}/health`);
   assert.equal(res.status, 200);
-  assert.deepEqual(await res.json(), { ok: true });
+  const body = await res.json();
+  assert.equal(body.ok, true);
+  assert.equal(body.version, '1.0.0');
+  assert.deepEqual(body.models, { marine: 'marine-1.0', hashiro: 'hashiro-1.0', kai: 'kai-1.0', kikka: 'kikka-1.0' });
 });
 
 test('GET /voices lists the four voices and the emotion keys', { skip }, async () => {

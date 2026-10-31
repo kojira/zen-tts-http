@@ -34,7 +34,7 @@ pnpm test
 
 ## API
 
-`GET /health` → `{"ok":true}`
+`GET /health` → `{"ok":true,"version":"1.0.0","models":{"marine":"marine-1.0", ...}}`（ZEN-TTS の版と各 voice のモデル。呼び出し側が音声キャッシュを捨てる判断に使います）
 
 `GET /voices`
 
