@@ -8,6 +8,8 @@
 //   DELETE /voices/{id}      custom voices only -> {"deleted":"<id>"}
 //   POST   /synthesize       {"text","voice"?,"emotion"?,"strength"?,"dict"?,"settings"?} -> audio/wav (44.1 kHz, mono)
 //                             dict: zen-tts dictionary entries; settings: {"accentHeight"} (zen-tts README 辞書の形式)
+//   POST   /analyze          {"text","voice"?,"dict"?} -> {"reading":"アシタ","moras":["ア","シ","タ"],"accent":3}
+//                             how the model reads one word; accent: 0 = 平板, n = the pitch drops after mora n
 //
 // Errors are JSON {"error": "..."} with status 400, 404, 409, 413 or 500.
 
@@ -16,10 +18,12 @@ import { readFileSync } from 'node:fs';
 import { ZenTtsNode, wavBytes, emotionNames, VERSION } from 'zen-tts/node';
 import { boundaryOf, readBody, parseMultipart, MultipartError } from './multipart.js';
 import { join } from 'node:path';
+import { analyzeWord, AnalyzeError } from './analyze.js';
 import { loadBuiltin, listCustom, stageCustom, commitCustom, discard, customDir, customLoadOptions, CUSTOM_ID, VoiceError } from './voices.js';
 
 export const MAX_TEXT_CHARS = 1000;
 export const MAX_DICT_ENTRIES = 2000;
+export const MAX_WORD_CHARS = 64; // a dictionary surface
 const MAX_BODY_BYTES = 1024 * 1024; // a full dictionary (2000 entries) fits
 export const MAX_FILE_BYTES = 100 * 1024 * 1024;
 const MAX_UPLOAD_BYTES = 4 * MAX_FILE_BYTES + 1024 * 1024; // the 1.0.0 layout sends four files
@@ -111,6 +115,13 @@ export function createHandler({ modelsPath, dataPath }) {
       res.writeHead(200, { 'content-type': 'audio/wav', 'content-length': wav.length });
       return res.end(wav);
     }
+    if (req.method === 'POST' && url.pathname === '/analyze') {
+      const body = await readJson(req);
+      const request = validate(body, (await builtin).default);
+      if ([...request.text].length > MAX_WORD_CHARS) throw new BadRequest(`text must be at most ${MAX_WORD_CHARS} characters`);
+      const tts = await engine(request.voice);
+      return sendJson(res, 200, analyzeWord(tts, request.text.trim(), request.dict ?? []));
+    }
     return sendJson(res, 404, { error: 'not found' });
   }
 
@@ -141,7 +152,7 @@ export function createHandler({ modelsPath, dataPath }) {
   return (req, res) => {
     handle(req, res).catch((error) => {
       const status =
-        error instanceof BadRequest || error instanceof VoiceError || error instanceof MultipartError
+        error instanceof BadRequest || error instanceof VoiceError || error instanceof MultipartError || error instanceof AnalyzeError
           ? error.message.includes('too large') ? 413 : 400
           : error instanceof Conflict ? 409 : 500;
       if (status === 500) console.error('request failed:', error);

@@ -109,6 +109,36 @@ test('POST /synthesize rejects a bad dict with 400 and a JSON error', { skip }, 
   }
 });
 
+async function analyze(body) {
+  const res = await fetch(`${base}/analyze`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  return { status: res.status, body: await res.json() };
+}
+
+test('POST /analyze gives the model reading, moras and accent type of a word', { skip }, async () => {
+  const ashita = await analyze({ text: '明日', voice: 'marine' });
+  assert.equal(ashita.status, 200);
+  assert.deepEqual(ashita.body, { reading: 'アシタ', moras: ['ア', 'シ', 'タ'], accent: 3 });
+  const tokyo = await analyze({ text: '東京' });
+  assert.deepEqual(tokyo.body, { reading: 'トーキョー', moras: ['ト', 'ー', 'キョ', 'ー'], accent: 0 });
+});
+
+test('POST /analyze applies the dictionary: 明日 -> アス', { skip }, async () => {
+  const asu = await analyze({ text: '明日', dict: [{ surface: '明日', reading: 'アス' }] });
+  assert.equal(asu.status, 200);
+  assert.equal(asu.body.reading, 'アス');
+  assert.deepEqual(asu.body.moras, ['ア', 'ス']);
+  const typed = await analyze({ text: '明日', dict: [{ surface: '明日', reading: 'アス', accent: 1 }] });
+  assert.equal(typed.body.accent, 1);
+});
+
+test('POST /analyze rejects a missing or too long word with 400', { skip }, async () => {
+  for (const body of [{}, { text: '' }, { text: 'あ'.repeat(65) }]) {
+    const res = await analyze(body);
+    assert.equal(res.status, 400, JSON.stringify(body).slice(0, 40));
+    assert.equal(typeof res.body.error, 'string');
+  }
+});
+
 test('unknown paths are 404', { skip }, async () => {
   const res = await fetch(`${base}/nope`);
   assert.equal(res.status, 404);
