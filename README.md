@@ -99,6 +99,21 @@ pnpm test
 
 成功すると `audio/wav`（44.1 kHz、モノラル、16 bit）を返します。間違いは `{"error": "..."}` で 400、合成の失敗は 500 です。
 
+`POST /analyze`（`Content-Type: application/json`）：1 語を、モデルがどう読むか（読み・拍・アクセント型）を返します。辞書の項目を、数字を打たずに作るためのものです。
+
+```json
+{ "text": "明日", "voice": "marine", "dict": [] }
+```
+
+- `text`：必須。64 文字まで（辞書の `surface` と同じ）。
+- `voice`・`dict`：`/synthesize` と同じ。`dict` を渡すと、その辞書を当てた読みを返します。
+
+```json
+{ "reading": "アシタ", "moras": ["ア", "シ", "タ"], "accent": 3 }
+```
+
+`accent` はアクセント型です：0 = 平板、n = n 拍目の後で下がる。語は「〇〇は。」の形で読みます（文の中と同じ読みになり、尾高の下がりも出ます）。読めないときは 400。
+
 ## macOS で常駐させる（launchd）
 
 `deploy/com.kojira.zen-tts-server.plist` の `YOU` とパスを書き換えて使います。
