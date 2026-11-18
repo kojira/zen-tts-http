@@ -18,10 +18,11 @@
 import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
 import * as zenTts from 'zen-tts/node';
-const { ZenTtsNode, wavBytes, emotionNames, VERSION } = zenTts;
+const { emotionNames, VERSION } = zenTts;
 import { boundaryOf, readBody, parseMultipart, MultipartError } from './multipart.js';
 import { join } from 'node:path';
-import { analyzeWord, AnalyzeError } from './analyze.js';
+import { AnalyzeError } from './analyze.js';
+import { createEngines } from './engines.js';
 import { loadBuiltin, listCustom, stageCustom, commitCustom, discard, customDir, customLoadOptions, CUSTOM_ID, VoiceError } from './voices.js';
 
 export const MAX_TEXT_CHARS = 1000;
@@ -37,19 +38,10 @@ export const SPEED_RANGE =
 
 const PAGE = readFileSync(new URL('./page.html', import.meta.url), 'utf8');
 
-export function createHandler({ modelsPath, dataPath }) {
+// workers: synthesis processes (src/engines.js). createHandler(...).close() stops them.
+export function createHandler({ modelsPath, dataPath, workers = 1 }) {
   const builtin = loadBuiltin(modelsPath);
-  const loaded = new Map();
-
-  function load(key, options) {
-    // Load each voice once, on first use, and keep it.
-    if (!loaded.has(key)) {
-      const promise = ZenTtsNode.load(options);
-      promise.catch(() => loaded.delete(key));
-      loaded.set(key, promise);
-    }
-    return loaded.get(key);
-  }
+  const engines = createEngines(workers);
 
   async function catalogue() {
     const manifest = await builtin;
@@ -57,13 +49,11 @@ export function createHandler({ modelsPath, dataPath }) {
     return { manifest, builtinIds: Object.keys(manifest.voices), custom };
   }
 
-  async function engine(voice) {
-    const { builtinIds, custom } = await catalogue();
-    if (builtinIds.includes(voice)) {
-      const { manifest } = await catalogue();
-      return load(`builtin:${voice}`, { model: join(modelsPath, manifest.voices[voice].file) });
-    }
-    if (custom.some((v) => v.id === voice)) return load(`custom:${voice}`, customLoadOptions(dataPath, voice));
+  // The voice cache key and load options of a voice (loaded where the job runs, on first use).
+  async function voiceSource(voice) {
+    const { manifest, builtinIds, custom } = await catalogue();
+    if (builtinIds.includes(voice)) return { key: `builtin:${voice}`, load: { model: join(modelsPath, manifest.voices[voice].file) } };
+    if (custom.some((v) => v.id === voice)) return { key: `custom:${voice}`, load: customLoadOptions(dataPath, voice) };
     throw new BadRequest(`unknown voice: ${voice} (one of ${[...builtinIds, ...custom.map((v) => v.id)].join(', ')})`);
   }
 
@@ -105,22 +95,21 @@ export function createHandler({ modelsPath, dataPath }) {
       const { builtinIds, custom } = await catalogue();
       if (builtinIds.includes(id)) throw new BadRequest(`組み込みの声 "${id}" は削除できません`);
       if (!custom.some((v) => v.id === id)) return sendJson(res, 404, { error: `unknown custom voice: ${id}` });
-      loaded.delete(`custom:${id}`);
+      engines.forget(`custom:${id}`);
       await discard(customDir(dataPath, id));
       return sendJson(res, 200, { deleted: id });
     }
     if (req.method === 'POST' && url.pathname === '/synthesize') {
       const body = await readJson(req);
       const request = validate(body, (await builtin).default);
-      const tts = await engine(request.voice);
+      const source = await voiceSource(request.voice);
       const options = {};
       if (request.emotion) options.emotion = request.emotion;
       if (request.strength !== undefined) options.strength = request.strength;
       if (request.speed !== undefined) options.speed = request.speed;
       if (request.dict) options.dict = request.dict;
       if (request.settings) options.settings = request.settings;
-      const result = await tts.speak(request.text, options);
-      const wav = wavBytes(result.pcm, result.sampleRate);
+      const wav = await engines.run({ op: 'synthesize', ...source, text: request.text, options });
       res.writeHead(200, { 'content-type': 'audio/wav', 'content-length': wav.length });
       return res.end(wav);
     }
@@ -128,8 +117,8 @@ export function createHandler({ modelsPath, dataPath }) {
       const body = await readJson(req);
       const request = validate(body, (await builtin).default);
       if ([...request.text].length > MAX_WORD_CHARS) throw new BadRequest(`text must be at most ${MAX_WORD_CHARS} characters`);
-      const tts = await engine(request.voice);
-      return sendJson(res, 200, analyzeWord(tts, request.text.trim(), request.dict ?? []));
+      const source = await voiceSource(request.voice);
+      return sendJson(res, 200, await engines.run({ op: 'analyze', ...source, text: request.text.trim(), dict: request.dict ?? [] }));
     }
     return sendJson(res, 404, { error: 'not found' });
   }
@@ -145,12 +134,12 @@ export function createHandler({ modelsPath, dataPath }) {
         throw new Conflict(`id "${staged.id}" の声はもうあります（差し替えるときは先に削除してください）`);
       }
       // Load it before keeping it: a set of files the engine cannot load is refused.
-      const tts = await ZenTtsNode.load(staged.loadOptions).catch((error) => {
+      // The loaded engine is kept (load() reads every file into memory, so it stays valid after the rename); other
+      // workers load the stored voice on first use.
+      await engines.run({ op: 'check', key: `custom:${staged.id}`, load: staged.loadOptions }).catch((error) => {
         throw new BadRequest(`この声を読み込めません: ${error.message}`);
       });
       await commitCustom(staged);
-      // load() reads every file into memory, so the engine stays valid after the rename.
-      loaded.set(`custom:${staged.id}`, Promise.resolve(tts));
     } catch (error) {
       await discard(staged.staging);
       throw error;
@@ -158,7 +147,7 @@ export function createHandler({ modelsPath, dataPath }) {
     return sendJson(res, 201, { voice: { id: staged.meta.id, name: staged.meta.name, custom: true } });
   }
 
-  return (req, res) => {
+  const handler = (req, res) => {
     handle(req, res).catch((error) => {
       const status =
         error instanceof BadRequest || error instanceof VoiceError || error instanceof MultipartError || error instanceof AnalyzeError
@@ -169,11 +158,16 @@ export function createHandler({ modelsPath, dataPath }) {
       else res.destroy();
     });
   };
+  handler.close = () => engines.close();
+  return handler;
 }
 
 // One app (one voice cache), served on any number of listeners: the API port and an optional admin port.
 export function createApp(options) {
-  return createServer(createHandler(options));
+  const handler = createHandler(options);
+  const server = createServer(handler);
+  server.on('close', () => handler.close());
+  return server;
 }
 
 class BadRequest extends Error {}

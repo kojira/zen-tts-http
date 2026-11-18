@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { resolve } from 'node:path';
 import { createHandler } from './server.js';
+import { workerCount } from './engines.js';
 
 function parseBind(name, value) {
   const separator = value.lastIndexOf(':');
@@ -13,8 +14,9 @@ function parseBind(name, value) {
 
 const modelsPath = resolve(process.env.ZEN_TTS_MODELS ?? 'models');
 const dataPath = process.env.ZEN_TTS_DATA ? resolve(process.env.ZEN_TTS_DATA) : undefined;
-// One handler, so both listeners share the loaded voices.
-const handler = createHandler({ modelsPath, dataPath });
+const workers = workerCount(process.env.ZEN_TTS_WORKERS);
+// One handler, so both listeners share the loaded voices and the synthesis workers.
+const handler = createHandler({ modelsPath, dataPath, workers });
 
 const binds = [['ZEN_TTS_BIND', process.env.ZEN_TTS_BIND ?? '127.0.0.1:50023']];
 if (process.env.ZEN_TTS_ADMIN_BIND) binds.push(['ZEN_TTS_ADMIN_BIND', process.env.ZEN_TTS_ADMIN_BIND]);
@@ -22,6 +24,6 @@ if (process.env.ZEN_TTS_ADMIN_BIND) binds.push(['ZEN_TTS_ADMIN_BIND', process.en
 for (const [name, value] of binds) {
   const { host, port } = parseBind(name, value);
   createServer(handler).listen(port, host, () => {
-    console.log(`zen-tts-server listening on ${host}:${port} (${name}; models: ${modelsPath}; data: ${dataPath ?? 'none'})`);
+    console.log(`zen-tts-server listening on ${host}:${port} (${name}; models: ${modelsPath}; data: ${dataPath ?? 'none'}; workers: ${workers})`);
   });
 }
