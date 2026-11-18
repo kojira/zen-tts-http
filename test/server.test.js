@@ -2,7 +2,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { createApp } from '../src/server.js';
+import { createApp, SPEED_RANGE } from '../src/server.js';
 
 const modelsPath = resolve(process.env.ZEN_TTS_MODELS ?? 'models');
 const haveModels = existsSync(resolve(modelsPath, 'voices.json'));
@@ -70,6 +70,30 @@ test('POST /synthesize rejects bad input with 400 and a JSON error', { skip }, a
   for (const body of cases) {
     const res = await post(body);
     assert.equal(res.status, 400, JSON.stringify(body).slice(0, 40));
+    assert.equal(typeof (await res.json()).error, 'string');
+  }
+});
+
+test('POST /synthesize speed: faster is shorter, outside the runtime range is 400', { skip }, async () => {
+  const text = '今日はいい天気ですね。';
+  const voices = await (await fetch(`${base}/voices`)).json();
+  assert.deepEqual(voices.speed, SPEED_RANGE);
+  if (!SPEED_RANGE) {
+    // A runtime without speed: 1 is accepted, anything else is refused rather than ignored.
+    assert.equal((await post({ text, voice: 'kikka', speed: 1 })).status, 200);
+    const res = await post({ text, voice: 'kikka', speed: 1.5 });
+    assert.equal(res.status, 400);
+    assert.match((await res.json()).error, /speed is not supported/);
+    return;
+  }
+  const normal = (await pcm({ text, voice: 'kikka' })).length;
+  const fast = (await pcm({ text, voice: 'kikka', speed: SPEED_RANGE.max })).length;
+  const slow = (await pcm({ text, voice: 'kikka', speed: SPEED_RANGE.min })).length;
+  assert.ok(fast < normal * 0.85, `speed ${SPEED_RANGE.max}: ${fast} vs ${normal}`);
+  assert.ok(slow > normal * 1.3, `speed ${SPEED_RANGE.min}: ${slow} vs ${normal}`);
+  for (const speed of [SPEED_RANGE.min - 0.01, SPEED_RANGE.max + 0.01, '1.2', null]) {
+    const res = await post({ text, voice: 'kikka', speed });
+    assert.equal(res.status, 400, String(speed));
     assert.equal(typeof (await res.json()).error, 'string');
   }
 });

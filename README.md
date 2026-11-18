@@ -72,7 +72,8 @@ pnpm test
     { "id": "marine", "name": { "ja": "全力 マリン", "en": "Zenryoku Marine" }, "custom": false },
     { "id": "my-voice", "name": { "ja": "わたしの声", "en": "My voice" }, "custom": true }
   ],
-  "emotions": ["neutral", "happy", "sad", "angry", "apologetic"]
+  "emotions": ["neutral", "happy", "sad", "angry", "apologetic"],
+  "speed": { "min": 0.5, "max": 1.5 }
 }
 ```
 
@@ -83,13 +84,14 @@ pnpm test
 `POST /synthesize`（`Content-Type: application/json`）
 
 ```json
-{ "text": "こんにちは", "voice": "kikka", "emotion": { "happy": 70, "neutral": 30 }, "strength": 1.0 }
+{ "text": "こんにちは", "voice": "kikka", "emotion": { "happy": 70, "neutral": 30 }, "strength": 1.0, "speed": 1.2 }
 ```
 
 - `text`：必須。1000 文字まで。
 - `voice`：省略すると `marine`。組み込みの `marine` / `hashiro` / `kai` / `kikka` か、追加した声の id。
 - `emotion`：省略可。各感情の割合（0〜100、比だけが効く）。
 - `strength`：省略可。抑揚の強さ（1 が標準）。
+- `speed`：省略可。話す速さの倍率（1 が標準）。受け付ける範囲は入っている ZEN-TTS が決め、`GET /voices` の `speed`（`{"min","max"}`）で分かります。範囲の外は 400 です。速さを変えられない ZEN-TTS（1.1.0 など）では `speed` は `null` で、1 以外は 400 です。
 - `dict`：省略可。ユーザー辞書（2000 項目まで）。形は ZEN-TTS の README「辞書の形式」と同じです：`surface`（書き方、必須、64 文字まで）、`reading`（カタカナかひらがな、必須、128 文字まで）、`accent`（0 以上の整数）、`phrase`（`"split"` か `"join"`）、`strength`（0 以上）、`contour`（拍ごと、-3〜3）、`pitch`（拍ごと、半音）、`length`（拍ごと、0 より大きい倍率）。読み・アクセント・イントネーションが変わります。
 - `settings`：省略可。辞書の全体の設定 `{ "accentHeight": 4.5 }`（アクセント型のある語の高い拍の高さ、半音）。
 

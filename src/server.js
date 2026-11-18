@@ -2,12 +2,14 @@
 //
 //   GET    /                 -> the settings page (HTML)
 //   GET    /health           -> {"ok":true,"version":"<zen-tts version>","models":{"<voice>":"<model>"}}
-//   GET    /voices           -> {"default":"marine","voices":[{"id","name":{"ja","en"},"custom"}],"emotions":[...]}
+//   GET    /voices           -> {"default":"marine","voices":[{"id","name":{"ja","en"},"custom"}],"emotions":[...],
+//                                 "speed":{"min","max"} | null}   (null: the installed zen-tts has no speed option)
 //   POST   /voices           multipart: id, name_ja, name_en, and either ztm (one .ztm, ZEN-TTS 1.1.0)
 //                             or own_bin, own_json, nsf_bin, nsf_json (the 1.0.0 layout) -> 201 {voice}
 //   DELETE /voices/{id}      custom voices only -> {"deleted":"<id>"}
-//   POST   /synthesize       {"text","voice"?,"emotion"?,"strength"?,"dict"?,"settings"?} -> audio/wav (44.1 kHz, mono)
+//   POST   /synthesize       {"text","voice"?,"emotion"?,"strength"?,"speed"?,"dict"?,"settings"?} -> audio/wav (44.1 kHz, mono)
 //                             dict: zen-tts dictionary entries; settings: {"accentHeight"} (zen-tts README 辞書の形式)
+//                             speed: speaking-rate factor within the runtime's range (GET /voices "speed"); 1 when omitted
 //   POST   /analyze          {"text","voice"?,"dict"?} -> {"reading":"アシタ","moras":["ア","シ","タ"],"accent":3}
 //                             how the model reads one word; accent: 0 = 平板, n = the pitch drops after mora n
 //
@@ -15,7 +17,8 @@
 
 import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
-import { ZenTtsNode, wavBytes, emotionNames, VERSION } from 'zen-tts/node';
+import * as zenTts from 'zen-tts/node';
+const { ZenTtsNode, wavBytes, emotionNames, VERSION } = zenTts;
 import { boundaryOf, readBody, parseMultipart, MultipartError } from './multipart.js';
 import { join } from 'node:path';
 import { analyzeWord, AnalyzeError } from './analyze.js';
@@ -27,6 +30,10 @@ export const MAX_WORD_CHARS = 64; // a dictionary surface
 const MAX_BODY_BYTES = 1024 * 1024; // a full dictionary (2000 entries) fits
 export const MAX_FILE_BYTES = 100 * 1024 * 1024;
 const MAX_UPLOAD_BYTES = 4 * MAX_FILE_BYTES + 1024 * 1024; // the 1.0.0 layout sends four files
+
+// The speak() `speed` range of the installed zen-tts (exported from 1.3.0 on); null when the runtime has no speed option.
+export const SPEED_RANGE =
+  typeof zenTts.SPEED_MIN === 'number' && typeof zenTts.SPEED_MAX === 'number' ? { min: zenTts.SPEED_MIN, max: zenTts.SPEED_MAX } : null;
 
 const PAGE = readFileSync(new URL('./page.html', import.meta.url), 'utf8');
 
@@ -85,6 +92,7 @@ export function createHandler({ modelsPath, dataPath }) {
           ...custom.map((v) => ({ id: v.id, name: v.name, custom: true })),
         ],
         emotions: [...emotionNames],
+        speed: SPEED_RANGE,
       });
     }
     if (req.method === 'POST' && url.pathname === '/voices') {
@@ -108,6 +116,7 @@ export function createHandler({ modelsPath, dataPath }) {
       const options = {};
       if (request.emotion) options.emotion = request.emotion;
       if (request.strength !== undefined) options.strength = request.strength;
+      if (request.speed !== undefined) options.speed = request.speed;
       if (request.dict) options.dict = request.dict;
       if (request.settings) options.settings = request.settings;
       const result = await tts.speak(request.text, options);
@@ -174,7 +183,7 @@ function validate(body, defaultVoice) {
   if (body === null || typeof body !== 'object' || Array.isArray(body)) {
     throw new BadRequest('body must be a JSON object');
   }
-  const { text, voice = defaultVoice, emotion, strength, dict, settings } = body;
+  const { text, voice = defaultVoice, emotion, strength, speed, dict, settings } = body;
   if (typeof text !== 'string' || text.trim() === '') throw new BadRequest('text must be a non-empty string');
   if ([...text].length > MAX_TEXT_CHARS) throw new BadRequest(`text must be at most ${MAX_TEXT_CHARS} characters`);
   if (typeof voice !== 'string' || !CUSTOM_ID.test(voice)) {
@@ -197,7 +206,21 @@ function validate(body, defaultVoice) {
   if (strength !== undefined && (typeof strength !== 'number' || !Number.isFinite(strength) || strength < 0)) {
     throw new BadRequest('strength must be a non-negative number');
   }
-  return { text, voice, emotion: checkedEmotion, strength, dict: validateDict(dict), settings: validateSettings(settings) };
+  return { text, voice, emotion: checkedEmotion, strength, speed: validateSpeed(speed), dict: validateDict(dict), settings: validateSettings(settings) };
+}
+
+// speed 1 is the runtime's default, so it is accepted (and not passed on) even when the runtime has no speed option.
+function validateSpeed(speed) {
+  if (speed === undefined) return undefined;
+  if (!isNumber(speed)) throw new BadRequest('speed must be a number');
+  if (!SPEED_RANGE) {
+    if (speed !== 1) throw new BadRequest(`speed is not supported by zen-tts ${VERSION} (only 1)`);
+    return undefined;
+  }
+  if (speed < SPEED_RANGE.min || speed > SPEED_RANGE.max) {
+    throw new BadRequest(`speed must be from ${SPEED_RANGE.min} to ${SPEED_RANGE.max}`);
+  }
+  return speed;
 }
 
 const KANA_READING = /^[\u3041-\u309f\u30a0-\u30ff]+$/u;
