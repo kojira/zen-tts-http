@@ -8,7 +8,7 @@
 
 - このリポジトリのコード（`src/`、`scripts/`、`test/`）は MIT です。
 - ZEN-TTS は全力機械株式会社の [ZEN-TTS ライセンス 1.0](https://github.com/zenryokukikai/zen-tts/blob/main/LICENSE.md) に従います。対象は、上流リポジトリのソースコードと文書、モデルの重み（上流リポジトリの G2P `models/g2p/` と、全力機械が ZEN-TTS 用に配布する voice のモデルファイル `.ztm`）です。このリポジトリにはどれも含めていません。
-  - ZEN-TTS は `package.json` で上流の 1.1.0（`ee0af07`。v1.1.0 タグの次のコミットで、ライセンス 1 章の対象を 1.1.0 の配り方に合わせたもの）に固定して取り込みます。改変はしません。G2P はこのパッケージに入っています。
+  - ZEN-TTS は `package.json` で上流の 1.4.0（`16b12ff`、v1.4.0 タグ）に固定して取り込みます。改変はしません。G2P はこのパッケージに入っています。arm64（macOS・Linux）と x86-64 では、`node_modules/zen-tts` で `pnpm run build:native` を実行すると、速いネイティブのカーネルを使います（実行しなければ WebAssembly。音は同じです）。
   - voice の `.ztm` は `scripts/fetch-models.mjs` が全力機械の CDN（`https://tts-models.zenryoku.work/v1.1.0/`）から取得し、上流 README の表にある sha256 と照合します。再配布はしません。
   - 声を使うアプリや作品では、上のクレジットをリンク付きで表示してください。改変・再配布、学習・蒸留・評価への利用は禁止されています。
 
@@ -92,7 +92,7 @@ pnpm test
 
 ## API
 
-`GET /health` → `{"ok":true,"version":"1.1.0","models":{"marine":"marine-1.0", ...}}`（ZEN-TTS の版と各 voice のモデル。呼び出し側が音声キャッシュを捨てる判断に使います）
+`GET /health` → `{"ok":true,"version":"1.4.0","models":{"marine":"marine-1.0", ...}}`（ZEN-TTS の版と各 voice のモデル。呼び出し側が音声キャッシュを捨てる判断に使います）
 
 `GET /voices`
 

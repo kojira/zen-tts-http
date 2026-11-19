@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createApp, SPEED_RANGE } from '../src/server.js';
+import { VERSION } from 'zen-tts/node';
 
 const modelsPath = resolve(process.env.ZEN_TTS_MODELS ?? 'models');
 const haveModels = existsSync(resolve(modelsPath, 'voices.json'));
@@ -28,12 +29,12 @@ function post(body) {
   });
 }
 
-test('GET /health reports zen-tts 1.1.0 and each voice model', { skip }, async () => {
+test('GET /health reports the installed zen-tts version and each voice model', { skip }, async () => {
   const res = await fetch(`${base}/health`);
   assert.equal(res.status, 200);
   const body = await res.json();
   assert.equal(body.ok, true);
-  assert.equal(body.version, '1.1.0');
+  assert.equal(body.version, VERSION);
   assert.deepEqual(body.models, { marine: 'marine-1.0', hashiro: 'hashiro-1.0', kai: 'kai-1.0', kikka: 'kikka-1.0' });
 });
 
